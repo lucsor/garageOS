@@ -769,33 +769,9 @@
         <input type="date" class="form-input" id="v-bollo">
       </div>
       <div class="form-group">
-        <label class="form-label">Costo Bollo (€)</label>
-        <input type="number" class="form-input" id="v-bollo-cost" placeholder="es. 180">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
         <label class="form-label">Scadenza Revisione</label>
         <input type="date" class="form-input" id="v-revisione">
       </div>
-      <div class="form-group">
-        <label class="form-label">Costo Revisione (€)</label>
-        <input type="number" class="form-input" id="v-revisione-cost" placeholder="es. 80">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Scadenza Assicurazione</label>
-        <input type="date" class="form-input" id="v-assicurazione">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Costo Assicurazione (€)</label>
-        <input type="number" class="form-input" id="v-assicurazione-cost" placeholder="es. 650">
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Compagnia Assicurativa</label>
-      <input type="text" class="form-input" id="v-assicurazione-company" placeholder="es. Generali, UnipolSai...">
     </div>
     <div class="form-group">
       <label class="form-label">Note</label>
@@ -1355,12 +1331,6 @@ function selectMechType(id) { toggleMechType(id); }
 // ===== MODAL =====
 function openModal(id) {
   const m = document.getElementById(id);
-  // If vehicle modal is opened fresh (not from openEditVehicle), reset the form
-  if (id === 'vehicle-modal' && !document.getElementById('v-edit-id').value) {
-    m.querySelectorAll('input:not(#v-edit-id), textarea').forEach(el => { el.value = ''; });
-    const typeEl = document.getElementById('v-type');
-    if (typeEl) typeEl.selectedIndex = 0;
-  }
   m.classList.add('open');
   if (id === 'tire-modal') populateVehicleSelect('t-vehicle');
   if (id === 'mech-modal') {
@@ -1401,29 +1371,13 @@ function populateVehicleSelect(selectId) {
 }
 
 // ===== TAB =====
-function switchTab(name, vehicleId) {
+function switchTab(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('section-' + name).classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
-  // If a vehicleId is passed, pre-set the filter for that section
-  if (vehicleId) {
-    if (name === 'scadenze') {
-      const sel = document.getElementById('scad-filter-vehicle');
-      if (sel) sel.value = vehicleId;
-    }
-    if (name === 'meccanica') {
-      const sel = document.getElementById('mech-filter-vehicle');
-      if (sel) sel.value = vehicleId;
-    }
-    if (name === 'pneumatici') {
-      const sel = document.getElementById('tire-filter-vehicle');
-      if (sel) sel.value = vehicleId;
-    }
-  }
   renderAll();
 }
-window.switchTab = switchTab;
 
 // ===== BUTTON LOADING =====
 function setButtonLoading(btnId, loading) {
@@ -1447,12 +1401,7 @@ function openEditVehicle(id) {
   document.getElementById('v-km').value = v.km || '';
   document.getElementById('v-km-date').value = v.kmDate || '';
   document.getElementById('v-bollo').value = v.bollo || '';
-  document.getElementById('v-bollo-cost').value = v.bolloCost || '';
   document.getElementById('v-revisione').value = v.revisione || '';
-  document.getElementById('v-revisione-cost').value = v.revisioneCost || '';
-  document.getElementById('v-assicurazione').value = v.assicurazione || '';
-  document.getElementById('v-assicurazione-cost').value = v.assicurazioneCost || '';
-  document.getElementById('v-assicurazione-company').value = v.assicurazioneCompany || '';
   document.getElementById('v-note').value = v.note || '';
   // Set type select
   const typeEl = document.getElementById('v-type');
@@ -1479,12 +1428,7 @@ async function saveVehicle() {
     km: document.getElementById('v-km').value,
     kmDate: document.getElementById('v-km-date').value,
     bollo: document.getElementById('v-bollo').value,
-    bolloCost: document.getElementById('v-bollo-cost').value,
     revisione: document.getElementById('v-revisione').value,
-    revisioneCost: document.getElementById('v-revisione-cost').value,
-    assicurazione: document.getElementById('v-assicurazione').value,
-    assicurazioneCost: document.getElementById('v-assicurazione-cost').value,
-    assicurazioneCompany: document.getElementById('v-assicurazione-company').value,
     note: document.getElementById('v-note').value,
     createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser ? currentUser.email : '?'),
@@ -1660,16 +1604,8 @@ function renderDashboard() {
     const worstDays = [bolloD, revD].filter(d => d !== null);
     const minDays = worstDays.length ? Math.min(...worstDays) : null;
     const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
-    const assicD = daysUntil(v.assicurazione);
-    const allDays = [bolloD, revD, assicD].filter(d => d !== null);
-    const minDays = allDays.length ? Math.min(...allDays) : null;
-    const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
-    const bolloCostStr = v.bolloCost ? ' · €'+Number(v.bolloCost).toLocaleString('it-IT') : '';
-    const revCostStr = v.revisioneCost ? ' · €'+Number(v.revisioneCost).toLocaleString('it-IT') : '';
-    const assicCostStr = v.assicurazioneCost ? ' · €'+Number(v.assicurazioneCost).toLocaleString('it-IT') : '';
-    const bolloBadge = bolloD !== null ? `<span class="badge ${badgeClass(bolloD)}"><span class="status-dot ${badgeClass(bolloD)}"></span>Bollo: ${bolloD >= 0 ? bolloD+'gg' : 'SCADUTO'}${bolloCostStr}</span>` : '';
-    const revBadge = revD !== null ? `<span class="badge ${badgeClass(revD)}"><span class="status-dot ${badgeClass(revD)}"></span>Revisione: ${revD >= 0 ? revD+'gg' : 'SCADUTA'}${revCostStr}</span>` : '';
-    const assicBadge = assicD !== null ? `<span class="badge ${badgeClass(assicD)}"><span class="status-dot ${badgeClass(assicD)}"></span>🛡️ Assic.${v.assicurazioneCompany ? ' '+v.assicurazioneCompany : ''}: ${assicD >= 0 ? assicD+'gg' : 'SCADUTA'}${assicCostStr}</span>` : '';
+    const bolloBadge = bolloD !== null ? `<span class="badge ${badgeClass(bolloD)}"><span class="status-dot ${badgeClass(bolloD)}"></span>Bollo: ${bolloD >= 0 ? bolloD+'gg' : 'SCADUTO'}</span>` : '';
+    const revBadge = revD !== null ? `<span class="badge ${badgeClass(revD)}"><span class="status-dot ${badgeClass(revD)}"></span>Revisione: ${revD >= 0 ? revD+'gg' : 'SCADUTA'}</span>` : '';
     const addedBy = v.addedBy ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">👤 ${v.addedBy}</div>` : '';
     return `
       <div class="vehicle-card ${cardClass}">
@@ -1683,10 +1619,10 @@ function renderDashboard() {
         <div class="vc-model">${v.model}</div>
         <div style="color:var(--text2);font-size:12px">${v.year ? v.year+' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT')+' km' : ''}${v.kmDate ? ' <span style="color:var(--text2);opacity:0.6">al '+formatDate(v.kmDate)+'</span>' : ''}</div>
         ${addedBy}
-        <div class="vc-badges">${bolloBadge}${revBadge}${assicBadge}</div>
+        <div class="vc-badges">${bolloBadge}${revBadge}</div>
         <div class="vc-actions">
-          <button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze','${v.id}')">📅 Scadenze</button>
-          <button class="btn btn-secondary btn-sm" onclick="switchTab('meccanica','${v.id}')">🔧 Storico</button>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze')">📅 Scadenze</button>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('meccanica')">🔧 Storico</button>
         </div>
       </div>`;
   }).join('') + `<div class="add-vehicle-card" onclick="openModal('vehicle-modal')"><div class="add-icon">➕</div><span>Aggiungi veicolo</span></div>`;
@@ -1701,9 +1637,8 @@ function renderScadenze() {
     data.vehicles.map(v => `<option value="${v.id}" ${filterV===v.id?'selected':''}>${v.plate} — ${v.model}</option>`).join('');
   let items = [];
   data.vehicles.filter(v => !filterV || v.id === filterV).forEach(v => {
-    if (v.bollo) items.push({ vehicle: v, type: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
-    if (v.revisione) items.push({ vehicle: v, type: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
-    if (v.assicurazione) items.push({ vehicle: v, type: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione '+v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
+    if (v.bollo) items.push({ vehicle: v, type: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo' });
+    if (v.revisione) items.push({ vehicle: v, type: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione' });
   });
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
   items.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1717,7 +1652,7 @@ function renderScadenze() {
     return `<div class="scadenza-item">
       <div class="sc-icon">${item.icon}</div>
       <div class="sc-info">
-        <div class="sc-title">${item.label} — ${item.vehicle.plate}${item.cost ? ` <span style="color:var(--accent);font-size:13px;font-weight:700">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
+        <div class="sc-title">${item.label} — ${item.vehicle.plate}</div>
         <div class="sc-sub">${item.vehicle.model} · Scade: ${formatDate(item.date)}</div>
         <div class="progress-bar" style="margin-top:8px"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>
       </div>
