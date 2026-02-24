@@ -769,9 +769,33 @@
         <input type="date" class="form-input" id="v-bollo">
       </div>
       <div class="form-group">
+        <label class="form-label">Costo Bollo (€)</label>
+        <input type="number" class="form-input" id="v-bollo-cost" placeholder="es. 180">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
         <label class="form-label">Scadenza Revisione</label>
         <input type="date" class="form-input" id="v-revisione">
       </div>
+      <div class="form-group">
+        <label class="form-label">Costo Revisione (€)</label>
+        <input type="number" class="form-input" id="v-revisione-cost" placeholder="es. 80">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Scadenza Assicurazione</label>
+        <input type="date" class="form-input" id="v-assicurazione">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Costo Assicurazione (€)</label>
+        <input type="number" class="form-input" id="v-assicurazione-cost" placeholder="es. 650">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Compagnia Assicurativa</label>
+      <input type="text" class="form-input" id="v-assicurazione-company" placeholder="es. Generali, UnipolSai...">
     </div>
     <div class="form-group">
       <label class="form-label">Note</label>
@@ -787,9 +811,10 @@
 <!-- MODAL: PNEUMATICI -->
 <div class="modal-overlay" id="tire-modal">
   <div class="modal">
-    <div class="modal-title">🔄 Registra Cambio Gomme</div>
+    <div class="modal-title" id="tire-modal-title">🔄 Registra Cambio Gomme</div>
     <div class="form-group">
       <label class="form-label">Veicolo *</label>
+      <input type="hidden" id="t-edit-id" value="">
       <select class="form-select" id="t-vehicle"></select>
     </div>
     <div class="form-row">
@@ -840,9 +865,10 @@
 <!-- MODAL: MECCANICA -->
 <div class="modal-overlay" id="mech-modal">
   <div class="modal" style="max-width:560px">
-    <div class="modal-title">🔧 Aggiungi Intervento</div>
+    <div class="modal-title" id="mech-modal-title">🔧 Aggiungi Intervento</div>
     <div class="form-group">
       <label class="form-label">Veicolo *</label>
+      <input type="hidden" id="m-edit-id" value="">
       <select class="form-select" id="m-vehicle"></select>
     </div>
     <div class="form-group">
@@ -947,6 +973,8 @@ let _unsubscribers = [];
 // ===== EXPOSE TO GLOBAL =====
 window.openModal        = openModal;
 window.openEditVehicle  = openEditVehicle;
+window.openEditTire     = openEditTire;
+window.openEditMech     = openEditMech;
 window.closeModal       = closeModal;
 window.switchTab        = switchTab;
 window.saveVehicle      = saveVehicle;
@@ -1327,6 +1355,12 @@ function selectMechType(id) { toggleMechType(id); }
 // ===== MODAL =====
 function openModal(id) {
   const m = document.getElementById(id);
+  // If vehicle modal is opened fresh (not from openEditVehicle), reset the form
+  if (id === 'vehicle-modal' && !document.getElementById('v-edit-id').value) {
+    m.querySelectorAll('input:not(#v-edit-id), textarea').forEach(el => { el.value = ''; });
+    const typeEl = document.getElementById('v-type');
+    if (typeEl) typeEl.selectedIndex = 0;
+  }
   m.classList.add('open');
   if (id === 'tire-modal') populateVehicleSelect('t-vehicle');
   if (id === 'mech-modal') {
@@ -1344,6 +1378,17 @@ function closeModal(id) {
     document.getElementById('vehicle-modal-title').textContent = '🚗 Aggiungi Veicolo';
     document.getElementById('btn-save-vehicle').textContent = 'Salva Veicolo';
   }
+  if (id === 'tire-modal') {
+    document.getElementById('t-edit-id').value = '';
+    document.getElementById('tire-modal-title').textContent = '🔄 Registra Cambio Gomme';
+    document.getElementById('btn-save-tire').textContent = 'Salva';
+  }
+  if (id === 'mech-modal') {
+    document.getElementById('m-edit-id').value = '';
+    document.getElementById('mech-modal-title').textContent = '🔧 Aggiungi Intervento';
+    document.getElementById('btn-save-mech').textContent = 'Salva';
+    buildMechTypeGrid([]);
+  }
 }
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
@@ -1356,13 +1401,29 @@ function populateVehicleSelect(selectId) {
 }
 
 // ===== TAB =====
-function switchTab(name) {
+function switchTab(name, vehicleId) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('section-' + name).classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
+  // If a vehicleId is passed, pre-set the filter for that section
+  if (vehicleId) {
+    if (name === 'scadenze') {
+      const sel = document.getElementById('scad-filter-vehicle');
+      if (sel) sel.value = vehicleId;
+    }
+    if (name === 'meccanica') {
+      const sel = document.getElementById('mech-filter-vehicle');
+      if (sel) sel.value = vehicleId;
+    }
+    if (name === 'pneumatici') {
+      const sel = document.getElementById('tire-filter-vehicle');
+      if (sel) sel.value = vehicleId;
+    }
+  }
   renderAll();
 }
+window.switchTab = switchTab;
 
 // ===== BUTTON LOADING =====
 function setButtonLoading(btnId, loading) {
@@ -1386,7 +1447,12 @@ function openEditVehicle(id) {
   document.getElementById('v-km').value = v.km || '';
   document.getElementById('v-km-date').value = v.kmDate || '';
   document.getElementById('v-bollo').value = v.bollo || '';
+  document.getElementById('v-bollo-cost').value = v.bolloCost || '';
   document.getElementById('v-revisione').value = v.revisione || '';
+  document.getElementById('v-revisione-cost').value = v.revisioneCost || '';
+  document.getElementById('v-assicurazione').value = v.assicurazione || '';
+  document.getElementById('v-assicurazione-cost').value = v.assicurazioneCost || '';
+  document.getElementById('v-assicurazione-company').value = v.assicurazioneCompany || '';
   document.getElementById('v-note').value = v.note || '';
   // Set type select
   const typeEl = document.getElementById('v-type');
@@ -1413,7 +1479,12 @@ async function saveVehicle() {
     km: document.getElementById('v-km').value,
     kmDate: document.getElementById('v-km-date').value,
     bollo: document.getElementById('v-bollo').value,
+    bolloCost: document.getElementById('v-bollo-cost').value,
     revisione: document.getElementById('v-revisione').value,
+    revisioneCost: document.getElementById('v-revisione-cost').value,
+    assicurazione: document.getElementById('v-assicurazione').value,
+    assicurazioneCost: document.getElementById('v-assicurazione-cost').value,
+    assicurazioneCompany: document.getElementById('v-assicurazione-company').value,
     note: document.getElementById('v-note').value,
     createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser ? currentUser.email : '?'),
@@ -1434,51 +1505,115 @@ async function saveVehicle() {
   setButtonLoading('btn-save-vehicle', false);
 }
 
+// ===== EDIT TIRE =====
+function openEditTire(id) {
+  const t = data.tires.find(x => x.id === id);
+  if (!t) return;
+  populateVehicleSelect('t-vehicle');
+  document.getElementById('t-edit-id').value = t.id;
+  document.getElementById('t-vehicle').value = t.vehicleId || '';
+  document.getElementById('t-season').value  = t.season   || 'invernale';
+  document.getElementById('t-date').value    = t.date     || '';
+  document.getElementById('t-km').value      = t.km       || '';
+  document.getElementById('t-km-next').value = t.kmNext   || '';
+  document.getElementById('t-brand').value   = t.brand    || '';
+  document.getElementById('t-size').value    = t.size     || '';
+  document.getElementById('t-note').value    = t.note     || '';
+  document.getElementById('tire-modal-title').textContent = '✏️ Modifica Cambio Gomme';
+  document.getElementById('btn-save-tire').textContent    = 'Aggiorna';
+  openModal('tire-modal');
+}
+
 // ===== SAVE TIRE =====
 async function saveTire() {
   const vid = document.getElementById('t-vehicle').value;
   if (!vid) { alert('Seleziona un veicolo'); return; }
+  const editId   = document.getElementById('t-edit-id').value;
+  const isEdit   = !!editId;
+  const existing = isEdit ? data.tires.find(x => x.id === editId) : null;
   const t = {
-    id: uid(), vehicleId: vid,
-    season: document.getElementById('t-season').value,
-    date: document.getElementById('t-date').value,
-    km: document.getElementById('t-km').value,
-    kmNext: document.getElementById('t-km-next').value,
-    brand: document.getElementById('t-brand').value,
-    size: document.getElementById('t-size').value,
-    note: document.getElementById('t-note').value,
-    createdAt: new Date().toISOString(),
+    id: isEdit ? editId : uid(),
+    vehicleId: vid,
+    season:  document.getElementById('t-season').value,
+    date:    document.getElementById('t-date').value,
+    km:      document.getElementById('t-km').value,
+    kmNext:  document.getElementById('t-km-next').value,
+    brand:   document.getElementById('t-brand').value,
+    size:    document.getElementById('t-size').value,
+    note:    document.getElementById('t-note').value,
+    createdAt:  isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    updatedAt:  new Date().toISOString(),
   };
   setButtonLoading('btn-save-tire', true);
-  try { await addTire(t); closeModal('tire-modal'); }
-  catch(e) { alert('Errore: ' + e.message); }
+  try {
+    await addTire(t);
+    closeModal('tire-modal');
+    document.getElementById('t-edit-id').value = '';
+    document.getElementById('tire-modal-title').textContent = '🔄 Registra Cambio Gomme';
+    document.getElementById('btn-save-tire').textContent    = 'Salva';
+  } catch(e) { alert('Errore: ' + e.message); }
   setButtonLoading('btn-save-tire', false);
 }
 
-// ===== SAVE MECH (multi-type) =====
+// ===== EDIT MECH =====
+function openEditMech(id) {
+  const m = data.mechs.find(x => x.id === id);
+  if (!m) return;
+  populateVehicleSelect('m-vehicle');
+  document.getElementById('m-edit-id').value  = m.id;
+  document.getElementById('m-vehicle').value  = m.vehicleId || '';
+  document.getElementById('m-date').value     = m.date      || '';
+  document.getElementById('m-km').value       = m.km        || '';
+  document.getElementById('m-cost').value     = m.cost      || '';
+  document.getElementById('m-garage').value   = m.garage    || '';
+  document.getElementById('m-note').value     = m.note      || '';
+  // Pre-select the single type
+  buildMechTypeGrid(m.type ? [m.type] : []);
+  document.getElementById('m-type').value = m.type || '';
+  document.getElementById('mech-modal-title').textContent = '✏️ Modifica Intervento';
+  document.getElementById('btn-save-mech').textContent    = 'Aggiorna';
+  openModal('mech-modal');
+}
+
+// ===== SAVE MECH (multi-type on add, single on edit) =====
 async function saveMech() {
-  const vid = document.getElementById('m-vehicle').value;
+  const vid    = document.getElementById('m-vehicle').value;
+  const editId = document.getElementById('m-edit-id').value;
+  const isEdit = !!editId;
+
   if (!vid) { alert('Seleziona un veicolo'); return; }
   if (_selectedMechTypes.length === 0) {
     document.getElementById('m-type-error').style.display = 'block'; return;
   }
+
+  const existing = isEdit ? data.mechs.find(x => x.id === editId) : null;
   const base = {
     vehicleId: vid,
-    date: document.getElementById('m-date').value,
-    km: document.getElementById('m-km').value,
-    cost: document.getElementById('m-cost').value,
+    date:   document.getElementById('m-date').value,
+    km:     document.getElementById('m-km').value,
+    cost:   document.getElementById('m-cost').value,
     garage: document.getElementById('m-garage').value,
-    note: document.getElementById('m-note').value,
-    createdAt: new Date().toISOString(),
-    addedBy: currentUser ? currentUser.email : '?',
+    note:   document.getElementById('m-note').value,
+    createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser?.email || '?'),
   };
+
   setButtonLoading('btn-save-mech', true);
   try {
-    // Save one record per selected type
-    await Promise.all(_selectedMechTypes.map(type => addMech({ ...base, id: uid(), type })));
+    if (isEdit) {
+      // Update single record keeping same id, with the (possibly changed) type
+      await addMech({ ...base, id: editId, type: _selectedMechTypes[0] });
+    } else {
+      // Add — one record per selected type
+      await Promise.all(_selectedMechTypes.map(type => addMech({ ...base, id: uid(), type })));
+    }
     closeModal('mech-modal');
     ['m-km','m-cost','m-garage','m-note'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('m-type').value = '';
+    document.getElementById('m-type').value  = '';
+    document.getElementById('m-edit-id').value = '';
+    document.getElementById('mech-modal-title').textContent = '🔧 Aggiungi Intervento';
+    document.getElementById('btn-save-mech').textContent    = 'Salva';
     buildMechTypeGrid([]);
   } catch(e) { alert('Errore: ' + e.message); }
   setButtonLoading('btn-save-mech', false);
@@ -1525,8 +1660,16 @@ function renderDashboard() {
     const worstDays = [bolloD, revD].filter(d => d !== null);
     const minDays = worstDays.length ? Math.min(...worstDays) : null;
     const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
-    const bolloBadge = bolloD !== null ? `<span class="badge ${badgeClass(bolloD)}"><span class="status-dot ${badgeClass(bolloD)}"></span>Bollo: ${bolloD >= 0 ? bolloD+'gg' : 'SCADUTO'}</span>` : '';
-    const revBadge = revD !== null ? `<span class="badge ${badgeClass(revD)}"><span class="status-dot ${badgeClass(revD)}"></span>Revisione: ${revD >= 0 ? revD+'gg' : 'SCADUTA'}</span>` : '';
+    const assicD = daysUntil(v.assicurazione);
+    const allDays = [bolloD, revD, assicD].filter(d => d !== null);
+    const minDays = allDays.length ? Math.min(...allDays) : null;
+    const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
+    const bolloCostStr = v.bolloCost ? ' · €'+Number(v.bolloCost).toLocaleString('it-IT') : '';
+    const revCostStr = v.revisioneCost ? ' · €'+Number(v.revisioneCost).toLocaleString('it-IT') : '';
+    const assicCostStr = v.assicurazioneCost ? ' · €'+Number(v.assicurazioneCost).toLocaleString('it-IT') : '';
+    const bolloBadge = bolloD !== null ? `<span class="badge ${badgeClass(bolloD)}"><span class="status-dot ${badgeClass(bolloD)}"></span>Bollo: ${bolloD >= 0 ? bolloD+'gg' : 'SCADUTO'}${bolloCostStr}</span>` : '';
+    const revBadge = revD !== null ? `<span class="badge ${badgeClass(revD)}"><span class="status-dot ${badgeClass(revD)}"></span>Revisione: ${revD >= 0 ? revD+'gg' : 'SCADUTA'}${revCostStr}</span>` : '';
+    const assicBadge = assicD !== null ? `<span class="badge ${badgeClass(assicD)}"><span class="status-dot ${badgeClass(assicD)}"></span>🛡️ Assic.${v.assicurazioneCompany ? ' '+v.assicurazioneCompany : ''}: ${assicD >= 0 ? assicD+'gg' : 'SCADUTA'}${assicCostStr}</span>` : '';
     const addedBy = v.addedBy ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">👤 ${v.addedBy}</div>` : '';
     return `
       <div class="vehicle-card ${cardClass}">
@@ -1540,10 +1683,10 @@ function renderDashboard() {
         <div class="vc-model">${v.model}</div>
         <div style="color:var(--text2);font-size:12px">${v.year ? v.year+' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT')+' km' : ''}${v.kmDate ? ' <span style="color:var(--text2);opacity:0.6">al '+formatDate(v.kmDate)+'</span>' : ''}</div>
         ${addedBy}
-        <div class="vc-badges">${bolloBadge}${revBadge}</div>
+        <div class="vc-badges">${bolloBadge}${revBadge}${assicBadge}</div>
         <div class="vc-actions">
-          <button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze')">📅 Scadenze</button>
-          <button class="btn btn-secondary btn-sm" onclick="switchTab('meccanica')">🔧 Storico</button>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('scadenze','${v.id}')">📅 Scadenze</button>
+          <button class="btn btn-secondary btn-sm" onclick="switchTab('meccanica','${v.id}')">🔧 Storico</button>
         </div>
       </div>`;
   }).join('') + `<div class="add-vehicle-card" onclick="openModal('vehicle-modal')"><div class="add-icon">➕</div><span>Aggiungi veicolo</span></div>`;
@@ -1558,8 +1701,9 @@ function renderScadenze() {
     data.vehicles.map(v => `<option value="${v.id}" ${filterV===v.id?'selected':''}>${v.plate} — ${v.model}</option>`).join('');
   let items = [];
   data.vehicles.filter(v => !filterV || v.id === filterV).forEach(v => {
-    if (v.bollo) items.push({ vehicle: v, type: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo' });
-    if (v.revisione) items.push({ vehicle: v, type: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione' });
+    if (v.bollo) items.push({ vehicle: v, type: 'bollo', date: v.bollo, icon: '📋', label: 'Bollo', cost: v.bolloCost });
+    if (v.revisione) items.push({ vehicle: v, type: 'revisione', date: v.revisione, icon: '🔍', label: 'Revisione', cost: v.revisioneCost });
+    if (v.assicurazione) items.push({ vehicle: v, type: 'assicurazione', date: v.assicurazione, icon: '🛡️', label: v.assicurazioneCompany ? 'Assicurazione '+v.assicurazioneCompany : 'Assicurazione', cost: v.assicurazioneCost });
   });
   if (items.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Nessuna scadenza registrata.</p></div>`; return; }
   items.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -1573,7 +1717,7 @@ function renderScadenze() {
     return `<div class="scadenza-item">
       <div class="sc-icon">${item.icon}</div>
       <div class="sc-info">
-        <div class="sc-title">${item.label} — ${item.vehicle.plate}</div>
+        <div class="sc-title">${item.label} — ${item.vehicle.plate}${item.cost ? ` <span style="color:var(--accent);font-size:13px;font-weight:700">· €${Number(item.cost).toLocaleString('it-IT')}</span>` : ''}</div>
         <div class="sc-sub">${item.vehicle.model} · Scade: ${formatDate(item.date)}</div>
         <div class="progress-bar" style="margin-top:8px"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>
       </div>
@@ -1600,7 +1744,10 @@ function renderPneumatici() {
         <div class="tire-icon">🔄</div>
         <div style="flex:1"><div style="font-family:var(--font-display);font-weight:700;font-size:14px">${vLabel}</div></div>
         <span class="tire-season ${t.season}">${seasonLabel}</span>
-        <button class="delete-btn" onclick="deleteTire('${t.id}')">🗑️</button>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="edit-btn" onclick="openEditTire('${t.id}')">✏️</button>
+          <button class="delete-btn" onclick="deleteTire('${t.id}')">🗑️</button>
+        </div>
       </div>
       <div class="tire-detail">📅 <strong>${formatDate(t.date)}</strong>${t.km ? ' · '+Number(t.km).toLocaleString('it-IT')+' km' : ''}</div>
       ${t.brand ? `<div class="tire-detail">🏷️ <strong>${t.brand}</strong>${t.size ? ' — '+t.size : ''}</div>` : ''}
@@ -1625,7 +1772,10 @@ function mechItemHTML(m) {
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
       <div class="mech-cost">${formatCurrency(m.cost)}</div>
-      <button class="delete-btn" onclick="deleteMech('${m.id}')">🗑️</button>
+      <div style="display:flex;gap:4px;justify-content:flex-end">
+        <button class="edit-btn" onclick="openEditMech('${m.id}')">✏️</button>
+        <button class="delete-btn" onclick="deleteMech('${m.id}')">🗑️</button>
+      </div>
     </div>
   </div>`;
 }
