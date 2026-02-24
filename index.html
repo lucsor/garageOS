@@ -372,6 +372,27 @@
     font-size: 16px; transition: color 0.2s;
   }
   .delete-btn:hover { color: var(--red); }
+  .edit-btn {
+    background: none; border: none; color: var(--text2);
+    cursor: pointer; padding: 4px; border-radius: 6px;
+    font-size: 16px; transition: color 0.2s;
+    font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  }
+  .edit-btn:hover { color: var(--accent); }
+  .mech-selected-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 100px;
+    font-size: 12px; font-weight: 600; font-family: var(--font-display);
+    background: rgba(232,197,71,0.1); color: var(--accent);
+    border: 1px solid rgba(232,197,71,0.3);
+    animation: slideIn 0.2s ease;
+  }
+  .mech-selected-tag button {
+    background: none; border: none; cursor: pointer;
+    color: var(--accent); font-size: 14px; line-height:1;
+    padding: 0 0 0 2px; opacity: 0.7;
+  }
+  .mech-selected-tag button:hover { opacity: 1; }
 
 
   /* ===== LOGIN SCREEN ===== */
@@ -657,10 +678,11 @@
 <!-- MODAL: AGGIUNGI VEICOLO -->
 <div class="modal-overlay" id="vehicle-modal">
   <div class="modal">
-    <div class="modal-title">🚗 Aggiungi Veicolo</div>
+    <div class="modal-title" id="vehicle-modal-title">🚗 Aggiungi Veicolo</div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Targa *</label>
+        <input type="hidden" id="v-edit-id" value="">
         <input type="text" class="form-input" id="v-plate" placeholder="AB123CD" style="text-transform:uppercase">
       </div>
       <div class="form-group">
@@ -685,6 +707,15 @@
       <div class="form-group">
         <label class="form-label">Km attuali</label>
         <input type="number" class="form-input" id="v-km" placeholder="50000">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Data rilevamento km</label>
+        <input type="date" class="form-input" id="v-km-date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">&nbsp;</label>
       </div>
     </div>
     <div class="form-row">
@@ -770,10 +801,11 @@
       <select class="form-select" id="m-vehicle"></select>
     </div>
     <div class="form-group">
-      <label class="form-label">Tipo Intervento *</label>
+      <label class="form-label">Tipi di Intervento * <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text2)">(puoi selezionarne più di uno)</span></label>
       <input type="hidden" id="m-type" value="">
       <div class="mech-type-grid" id="mech-type-grid"></div>
-      <div id="m-type-error" style="color:var(--red);font-size:12px;margin-top:6px;display:none">Seleziona un tipo di intervento</div>
+      <div id="m-selected-tags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;min-height:0"></div>
+      <div id="m-type-error" style="color:var(--red);font-size:12px;margin-top:6px;display:none">Seleziona almeno un tipo di intervento</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -869,6 +901,7 @@ let _unsubscribers = [];
 
 // ===== EXPOSE TO GLOBAL =====
 window.openModal        = openModal;
+window.openEditVehicle  = openEditVehicle;
 window.closeModal       = closeModal;
 window.switchTab        = switchTab;
 window.saveVehicle      = saveVehicle;
@@ -1181,34 +1214,68 @@ function formatDate(dateStr) {
 function formatCurrency(n) { return n ? '€ ' + Number(n).toLocaleString('it-IT') : '—'; }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
-// ===== MECH TYPE GRID =====
-function buildMechTypeGrid(selectedId = '') {
+// ===== MECH TYPE GRID (MULTI-SELECT) =====
+let _selectedMechTypes = [];
+
+function buildMechTypeGrid(selectedIds = []) {
+  _selectedMechTypes = Array.isArray(selectedIds) ? [...selectedIds] : (selectedIds ? [selectedIds] : []);
   const grid = document.getElementById('mech-type-grid');
   if (!grid) return;
-  grid.innerHTML = MECH_TYPES.map(t => `
-    <button type="button" class="mech-type-btn ${t.id === selectedId ? 'selected' : ''}"
-      onclick="selectMechType('${t.id}')"
-      style="${t.id === selectedId ? `border-color:${t.color};color:${t.color};background:${t.color}18` : ''}">
+  grid.innerHTML = MECH_TYPES.map(t => {
+    const sel = _selectedMechTypes.includes(t.id);
+    return `<button type="button" class="mech-type-btn ${sel ? 'selected' : ''}"
+      onclick="toggleMechType('${t.id}')"
+      style="${sel ? `border-color:${t.color};color:${t.color};background:${t.color}18` : ''}">
       <span class="mt-icon">${t.icon}</span>
       <span>${t.label}</span>
-    </button>`).join('');
+    </button>`;
+  }).join('');
+  updateSelectedTags();
 }
-function selectMechType(id) {
-  document.getElementById('m-type').value = id;
-  document.getElementById('m-type-error').style.display = 'none';
-  const t = getMechType(id);
-  document.querySelectorAll('.mech-type-btn').forEach(btn => {
-    btn.classList.remove('selected');
-    btn.style.borderColor = ''; btn.style.color = ''; btn.style.background = '';
-  });
-  const clicked = [...document.querySelectorAll('.mech-type-btn')]
-    .find(b => b.getAttribute('onclick') === `selectMechType('${id}')`);
-  if (clicked) {
-    clicked.classList.add('selected');
-    clicked.style.borderColor = t.color; clicked.style.color = t.color;
-    clicked.style.background = t.color + '18';
+
+function toggleMechType(id) {
+  const idx = _selectedMechTypes.indexOf(id);
+  if (idx >= 0) {
+    _selectedMechTypes.splice(idx, 1);
+  } else {
+    _selectedMechTypes.push(id);
   }
+  document.getElementById('m-type').value = _selectedMechTypes.join(',');
+  document.getElementById('m-type-error').style.display = 'none';
+  // Update button visual
+  const t = getMechType(id);
+  const btn = [...document.querySelectorAll('.mech-type-btn')]
+    .find(b => b.getAttribute('onclick') === `toggleMechType('${id}')`);
+  if (btn) {
+    const isNowSelected = _selectedMechTypes.includes(id);
+    if (isNowSelected) {
+      btn.classList.add('selected');
+      btn.style.borderColor = t.color; btn.style.color = t.color; btn.style.background = t.color + '18';
+    } else {
+      btn.classList.remove('selected');
+      btn.style.borderColor = ''; btn.style.color = ''; btn.style.background = '';
+    }
+  }
+  updateSelectedTags();
 }
+
+function updateSelectedTags() {
+  const wrap = document.getElementById('m-selected-tags');
+  if (!wrap) return;
+  if (_selectedMechTypes.length === 0) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = _selectedMechTypes.map(id => {
+    const t = getMechType(id);
+    return `<span class="mech-selected-tag" style="background:${t.color}15;color:${t.color};border-color:${t.color}40">
+      ${t.icon} ${t.label}
+      <button onclick="toggleMechType('${id}')" title="Rimuovi">×</button>
+    </span>`;
+  }).join('');
+}
+
+function removeMechTypeTag(id) { toggleMechType(id); }
+
+// Legacy single-select shim (not used but keep for safety)
+function selectMechType(id) { toggleMechType(id); }
 
 // ===== MODAL =====
 function openModal(id) {
@@ -1218,12 +1285,19 @@ function openModal(id) {
   if (id === 'mech-modal') {
     populateVehicleSelect('m-vehicle');
     document.getElementById('m-type').value = '';
-    buildMechTypeGrid('');
+    buildMechTypeGrid([]);
   }
   const today = new Date().toISOString().split('T')[0];
   m.querySelectorAll('input[type="date"]').forEach(inp => { if (!inp.value) inp.value = today; });
 }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  if (id === 'vehicle-modal') {
+    document.getElementById('v-edit-id').value = '';
+    document.getElementById('vehicle-modal-title').textContent = '🚗 Aggiungi Veicolo';
+    document.getElementById('btn-save-vehicle').textContent = 'Salva Veicolo';
+  }
+}
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
 });
@@ -1253,29 +1327,62 @@ function setButtonLoading(btnId, loading) {
   btn.textContent = loading ? 'Salvataggio...' : (btn.dataset.orig || 'Salva');
 }
 
+// ===== EDIT VEHICLE =====
+function openEditVehicle(id) {
+  const v = data.vehicles.find(x => x.id === id);
+  if (!v) return;
+  // Fill modal fields
+  document.getElementById('v-edit-id').value = v.id;
+  document.getElementById('v-plate').value = v.plate || '';
+  document.getElementById('v-model').value = v.model || '';
+  document.getElementById('v-year').value = v.year || '';
+  document.getElementById('v-km').value = v.km || '';
+  document.getElementById('v-km-date').value = v.kmDate || '';
+  document.getElementById('v-bollo').value = v.bollo || '';
+  document.getElementById('v-revisione').value = v.revisione || '';
+  document.getElementById('v-note').value = v.note || '';
+  // Set type select
+  const typeEl = document.getElementById('v-type');
+  if (v.type) typeEl.value = v.type;
+  // Update modal title & button
+  document.getElementById('vehicle-modal-title').textContent = '✏️ Modifica Veicolo';
+  document.getElementById('btn-save-vehicle').textContent = 'Aggiorna Veicolo';
+  openModal('vehicle-modal');
+}
+
 // ===== SAVE VEHICLE =====
 async function saveVehicle() {
   const plate = document.getElementById('v-plate').value.trim().toUpperCase();
   const model = document.getElementById('v-model').value.trim();
   if (!plate || !model) { alert('Targa e modello sono obbligatori'); return; }
+  const editId = document.getElementById('v-edit-id').value;
+  const isEdit = !!editId;
+  const existing = isEdit ? data.vehicles.find(x => x.id === editId) : null;
   const v = {
-    id: uid(), plate, model,
+    id: isEdit ? editId : uid(),
+    plate, model,
     type: document.getElementById('v-type').value,
     year: document.getElementById('v-year').value,
     km: document.getElementById('v-km').value,
+    kmDate: document.getElementById('v-km-date').value,
     bollo: document.getElementById('v-bollo').value,
     revisione: document.getElementById('v-revisione').value,
     note: document.getElementById('v-note').value,
-    createdAt: new Date().toISOString(),
-    addedBy: currentUser ? currentUser.email : '?',
+    createdAt: isEdit ? (existing?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    addedBy: isEdit ? (existing?.addedBy || currentUser?.email || '?') : (currentUser ? currentUser.email : '?'),
+    updatedAt: new Date().toISOString(),
   };
   setButtonLoading('btn-save-vehicle', true);
   try {
-    await addVehicle(v);
+    await addVehicle(v); // addVehicle uses setDoc so works for both add & update
     closeModal('vehicle-modal');
+    // Reset form
     document.getElementById('vehicle-modal').querySelectorAll('input, textarea, select').forEach(el => {
       if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
     });
+    document.getElementById('v-edit-id').value = '';
+    document.getElementById('vehicle-modal-title').textContent = '🚗 Aggiungi Veicolo';
+    document.getElementById('btn-save-vehicle').textContent = 'Salva Veicolo';
   } catch(e) { alert('Errore: ' + e.message); }
   setButtonLoading('btn-save-vehicle', false);
 }
@@ -1301,14 +1408,15 @@ async function saveTire() {
   setButtonLoading('btn-save-tire', false);
 }
 
-// ===== SAVE MECH =====
+// ===== SAVE MECH (multi-type) =====
 async function saveMech() {
   const vid = document.getElementById('m-vehicle').value;
-  const mtype = document.getElementById('m-type').value;
   if (!vid) { alert('Seleziona un veicolo'); return; }
-  if (!mtype) { document.getElementById('m-type-error').style.display = 'block'; return; }
-  const m = {
-    id: uid(), vehicleId: vid, type: mtype,
+  if (_selectedMechTypes.length === 0) {
+    document.getElementById('m-type-error').style.display = 'block'; return;
+  }
+  const base = {
+    vehicleId: vid,
     date: document.getElementById('m-date').value,
     km: document.getElementById('m-km').value,
     cost: document.getElementById('m-cost').value,
@@ -1319,11 +1427,12 @@ async function saveMech() {
   };
   setButtonLoading('btn-save-mech', true);
   try {
-    await addMech(m);
+    // Save one record per selected type
+    await Promise.all(_selectedMechTypes.map(type => addMech({ ...base, id: uid(), type })));
     closeModal('mech-modal');
     ['m-km','m-cost','m-garage','m-note'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('m-type').value = '';
-    buildMechTypeGrid('');
+    buildMechTypeGrid([]);
   } catch(e) { alert('Errore: ' + e.message); }
   setButtonLoading('btn-save-mech', false);
 }
@@ -1376,10 +1485,13 @@ function renderDashboard() {
       <div class="vehicle-card ${cardClass}">
         <div class="vc-header">
           <div><div class="vc-type">${typeIcon(v.type)}</div><div class="vc-plate">${v.plate}</div></div>
-          <button class="delete-btn" onclick="deleteVehicle('${v.id}')">🗑️</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="edit-btn" onclick="openEditVehicle('${v.id}')">✏️</button>
+            <button class="delete-btn" onclick="deleteVehicle('${v.id}')">🗑️</button>
+          </div>
         </div>
         <div class="vc-model">${v.model}</div>
-        <div style="color:var(--text2);font-size:12px">${v.year ? v.year+' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT')+' km' : ''}</div>
+        <div style="color:var(--text2);font-size:12px">${v.year ? v.year+' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT')+' km' : ''}${v.kmDate ? ' <span style="color:var(--text2);opacity:0.6">al '+formatDate(v.kmDate)+'</span>' : ''}</div>
         ${addedBy}
         <div class="vc-badges">${bolloBadge}${revBadge}</div>
         <div class="vc-actions">
@@ -1563,7 +1675,7 @@ function renderFamiglia() {
             <div><div class="vc-type">${typeIcon(v.type)}</div><div class="vc-plate">${v.plate}</div></div>
           </div>
           <div class="vc-model">${v.model}</div>
-          <div style="color:var(--text2);font-size:12px">${v.year ? v.year+' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT')+' km' : ''}</div>
+          <div style="color:var(--text2);font-size:12px">${v.year ? v.year+' · ' : ''}${v.km ? Number(v.km).toLocaleString('it-IT')+' km' : ''}${v.kmDate ? ' <span style="color:var(--text2);opacity:0.6">al '+formatDate(v.kmDate)+'</span>' : ''}</div>
           ${v.addedBy ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">👤 ${v.addedBy}</div>` : ''}
           <div class="vc-badges" style="margin-top:10px">${bolloBadge}${revBadge}</div>
         </div>`;
