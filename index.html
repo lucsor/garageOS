@@ -526,6 +526,51 @@
   /* Header user area wrapper */
   #header-user-area { position: relative; display: flex; align-items: center; gap: 10px; }
 
+  /* YEAR GROUP */
+  .year-group { margin-bottom: 8px; border-radius: var(--radius); overflow: hidden; }
+  .year-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; cursor: pointer;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: var(--trans);
+    user-select: none;
+  }
+  .year-header:hover { border-color: rgba(255,255,255,0.15); background: #232736; }
+  .year-header.open { border-radius: var(--radius) var(--radius) 0 0; border-bottom-color: transparent; }
+  .year-header-left { display: flex; align-items: center; gap: 12px; }
+  .year-label {
+    font-family: var(--font-display); font-size: 18px; font-weight: 800;
+    color: var(--text);
+  }
+  .year-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.07); border-radius: 100px;
+    font-size: 12px; font-weight: 700; font-family: var(--font-display);
+    color: var(--text2); padding: 2px 10px;
+  }
+  .year-cost {
+    font-family: var(--font-display); font-weight: 700; font-size: 15px;
+    color: var(--accent);
+  }
+  .year-chevron {
+    font-size: 14px; color: var(--text2);
+    transition: transform 0.3s ease;
+    display: inline-block;
+  }
+  .year-header.open .year-chevron { transform: rotate(180deg); }
+  .year-body {
+    border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    overflow: hidden;
+    display: none;
+  }
+  .year-body.open { display: block; animation: fadeUp 0.25s ease; }
+  .year-body .mech-item { border-radius: 0; border-left: none; border-right: none; border-top: none; }
+  .year-body .mech-item:last-child { border-bottom: none; }
+  .year-body .mech-item:first-child { border-top: 1px solid var(--border); }
+
   /* RESPONSIVE */
   @media (max-width: 600px) {
     header, .nav-tabs, .section { padding-left: 16px; padding-right: 16px; }
@@ -1566,6 +1611,35 @@ function renderPneumatici() {
 }
 
 // ===== RENDER MECCANICA =====
+function mechItemHTML(m) {
+  const v = data.vehicles.find(v => v.id === m.vehicleId);
+  const vLabel = v ? `${v.plate} — ${v.model}` : 'Veicolo rimosso';
+  const mt = getMechType(m.type);
+  return `<div class="mech-item">
+    <div class="mech-icon-wrap" style="background:${mt.color}1a;border:1px solid ${mt.color}33">${mt.icon}</div>
+    <div class="mech-info">
+      <div class="mech-title">${mt.label}</div>
+      <div class="mech-sub">${vLabel} · ${formatDate(m.date)}${m.km ? ' · '+Number(m.km).toLocaleString('it-IT')+' km' : ''}${m.garage ? ' · 🏪 '+m.garage : ''}</div>
+      ${m.note ? `<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:8px">${m.note}</div>` : ''}
+      ${m.addedBy ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">👤 ${m.addedBy}</div>` : ''}
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div class="mech-cost">${formatCurrency(m.cost)}</div>
+      <button class="delete-btn" onclick="deleteMech('${m.id}')">🗑️</button>
+    </div>
+  </div>`;
+}
+
+function toggleYearGroup(year) {
+  const header = document.getElementById('yh-' + year);
+  const body   = document.getElementById('yb-' + year);
+  if (!header || !body) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  header.classList.toggle('open', !isOpen);
+}
+window.toggleYearGroup = toggleYearGroup;
+
 function renderMeccanica() {
   const selV = document.getElementById('mech-filter-vehicle');
   const selT = document.getElementById('mech-filter-type');
@@ -1573,29 +1647,58 @@ function renderMeccanica() {
   const list = document.getElementById('mech-list');
   selV.innerHTML = '<option value="">Tutti i veicoli</option>' +
     data.vehicles.map(v => `<option value="${v.id}" ${filterV===v.id?'selected':''}>${v.plate} — ${v.model}</option>`).join('');
-  let mechs = data.mechs.filter(m => (!filterV || m.vehicleId === filterV) && (!filterT || m.type === filterT))
-    .sort((a,b) => new Date(b.date)-new Date(a.date));
-  if (mechs.length === 0) { list.innerHTML = `<div class="empty-state"><div class="empty-icon">🔧</div><p>Nessun intervento registrato.</p></div>`; return; }
+
+  let mechs = data.mechs
+    .filter(m => (!filterV || m.vehicleId === filterV) && (!filterT || m.type === filterT))
+    .sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  if (mechs.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">🔧</div><p>Nessun intervento registrato.</p></div>`;
+    return;
+  }
+
+  // Group by year
+  const byYear = {};
+  mechs.forEach(m => {
+    const yr = m.date ? new Date(m.date).getFullYear() : 'N/D';
+    if (!byYear[yr]) byYear[yr] = [];
+    byYear[yr].push(m);
+  });
+
+  const years = Object.keys(byYear).sort((a,b) => b - a); // newest first
   const totalCost = mechs.reduce((s,m) => s+(parseFloat(m.cost)||0), 0);
-  list.innerHTML = `<div style="margin-bottom:14px;color:var(--text2);font-size:13px">${mechs.length} interventi · Totale: <strong style="color:var(--accent)">€${totalCost.toLocaleString('it-IT')}</strong></div>`
-    + mechs.map(m => {
-      const v = data.vehicles.find(v => v.id === m.vehicleId);
-      const vLabel = v ? `${v.plate} — ${v.model}` : 'Veicolo rimosso';
-      const mt = getMechType(m.type);
-      return `<div class="mech-item">
-        <div class="mech-icon-wrap" style="background:${mt.color}1a;border:1px solid ${mt.color}33">${mt.icon}</div>
-        <div class="mech-info">
-          <div class="mech-title">${mt.label}</div>
-          <div class="mech-sub">${vLabel} · ${formatDate(m.date)}${m.km ? ' · '+Number(m.km).toLocaleString('it-IT')+' km' : ''}${m.garage ? ' · 🏪 '+m.garage : ''}</div>
-          ${m.note ? `<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:6px 8px;background:var(--surface2);border-radius:8px">${m.note}</div>` : ''}
-          ${m.addedBy ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">👤 ${m.addedBy}</div>` : ''}
+
+  // Summary bar
+  let html = `<div style="margin-bottom:18px;color:var(--text2);font-size:13px">
+    ${mechs.length} interventi · ${years.length} ${years.length===1?'anno':'anni'} · Totale: <strong style="color:var(--accent)">€${totalCost.toLocaleString('it-IT')}</strong>
+  </div>`;
+
+  years.forEach((yr, idx) => {
+    const items = byYear[yr];
+    const yrCost = items.reduce((s,m) => s+(parseFloat(m.cost)||0), 0);
+    const isCurrentYear = yr == new Date().getFullYear();
+    // Auto-open current year and most recent year
+    const autoOpen = idx === 0 || isCurrentYear;
+
+    html += `<div class="year-group">
+      <div class="year-header ${autoOpen ? 'open' : ''}" id="yh-${yr}" onclick="toggleYearGroup('${yr}')">
+        <div class="year-header-left">
+          <span class="year-label">${yr}</span>
+          <span class="year-count">${items.length} interventi</span>
+          ${isCurrentYear ? `<span style="font-size:11px;color:var(--green);font-weight:700;font-family:var(--font-display)">● in corso</span>` : ''}
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-          <div class="mech-cost">${formatCurrency(m.cost)}</div>
-          <button class="delete-btn" onclick="deleteMech('${m.id}')">🗑️</button>
+        <div style="display:flex;align-items:center;gap:14px">
+          ${yrCost > 0 ? `<span class="year-cost">€${yrCost.toLocaleString('it-IT')}</span>` : ''}
+          <span class="year-chevron">▼</span>
         </div>
-      </div>`;
-    }).join('');
+      </div>
+      <div class="year-body ${autoOpen ? 'open' : ''}" id="yb-${yr}">
+        ${items.map(m => mechItemHTML(m)).join('')}
+      </div>
+    </div>`;
+  });
+
+  list.innerHTML = html;
 }
 
 // ===== RENDER FAMIGLIA =====
