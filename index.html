@@ -998,8 +998,21 @@ window.copyShareLink    = copyShareLink;
 // ===== AUTH =====
 async function signInWithGoogle() {
   try {
-    await signInWithPopup(auth, provider);
-  } catch(e) { console.error(e); alert('Errore accesso: ' + e.message); }
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const result = await signInWithPopup(auth, provider);
+    console.log('Login OK:', result.user.email);
+  } catch(e) {
+    console.error('Auth error:', e.code, e.message);
+    if (e.code === 'auth/popup-blocked') {
+      alert('Il popup è stato bloccato dal browser. Abilita i popup per questo sito e riprova.');
+    } else if (e.code === 'auth/popup-closed-by-user') {
+      // utente ha chiuso, non mostrare errore
+    } else if (e.code === 'auth/unauthorized-domain') {
+      alert('Dominio non autorizzato. Aggiungi lucsor.github.io ai domini autorizzati in Firebase Console → Authentication → Settings.');
+    } else {
+      alert('Errore accesso: ' + e.message);
+    }
+  }
 }
 
 async function signOutUser() {
@@ -1657,12 +1670,9 @@ function renderDashboard() {
   grid.innerHTML = data.vehicles.map(v => {
     const bolloD = daysUntil(v.bollo);
     const revD = daysUntil(v.revisione);
-    const worstDays = [bolloD, revD].filter(d => d !== null);
-    const minDays = worstDays.length ? Math.min(...worstDays) : null;
-    const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
     const assicD = daysUntil(v.assicurazione);
     const allDays = [bolloD, revD, assicD].filter(d => d !== null);
-    minDays = allDays.length ? Math.min(...allDays) : null;
+    const minDays = allDays.length ? Math.min(...allDays) : null;
     const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
     const bolloCostStr = v.bolloCost ? ' · €'+Number(v.bolloCost).toLocaleString('it-IT') : '';
     const revCostStr = v.revisioneCost ? ' · €'+Number(v.revisioneCost).toLocaleString('it-IT') : '';
@@ -1979,6 +1989,5 @@ renderAll();
 
 
 </script>
-</body>
 </body>
 </html>
