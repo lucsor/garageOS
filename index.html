@@ -1662,7 +1662,7 @@ function renderDashboard() {
     const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
     const assicD = daysUntil(v.assicurazione);
     const allDays = [bolloD, revD, assicD].filter(d => d !== null);
-    const minDays = allDays.length ? Math.min(...allDays) : null;
+    minDays = allDays.length ? Math.min(...allDays) : null;
     const cardClass = minDays === null ? 'ok' : minDays <= 10 ? 'danger' : minDays <= 60 ? 'warn' : 'ok';
     const bolloCostStr = v.bolloCost ? ' · €'+Number(v.bolloCost).toLocaleString('it-IT') : '';
     const revCostStr = v.revisioneCost ? ' · €'+Number(v.revisioneCost).toLocaleString('it-IT') : '';
