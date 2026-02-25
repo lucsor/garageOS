@@ -944,7 +944,7 @@ import {
   onSnapshot, setDoc, deleteDoc, query, orderBy, getDocs, addDoc, getDoc
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup,
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   onAuthStateChanged, signOut as fbSignOut
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js';
 
@@ -997,24 +997,54 @@ window.copyShareLink    = copyShareLink;
 window._showToast       = _showToast;
 
 // ===== AUTH =====
+function _isMobile() {
+  return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
+}
+
 async function signInWithGoogle() {
-  try {
-    provider.setCustomParameters({ prompt: 'select_account' });
-    const result = await signInWithPopup(auth, provider);
-    console.log('Login OK:', result.user.email);
-  } catch(e) {
-    console.error('Auth error:', e.code, e.message);
-    if (e.code === 'auth/popup-blocked') {
-      alert('Il popup è stato bloccato dal browser. Abilita i popup per questo sito e riprova.');
-    } else if (e.code === 'auth/popup-closed-by-user') {
-      // utente ha chiuso, non mostrare errore
-    } else if (e.code === 'auth/unauthorized-domain') {
-      alert('Dominio non autorizzato. Aggiungi lucsor.github.io ai domini autorizzati in Firebase Console → Authentication → Settings.');
-    } else {
+  provider.setCustomParameters({ prompt: 'select_account' });
+  if (_isMobile()) {
+    // Su mobile usa redirect (popup bloccato da iOS/Android)
+    try {
+      await signInWithRedirect(auth, provider);
+      // La pagina si ricarica dopo il redirect — il risultato viene gestito sotto
+    } catch(e) {
+      console.error('Redirect error:', e);
       alert('Errore accesso: ' + e.message);
+    }
+  } else {
+    // Su desktop usa popup
+    try {
+      await signInWithPopup(auth, provider);
+    } catch(e) {
+      console.error('Popup error:', e.code, e.message);
+      if (e.code === 'auth/popup-blocked') {
+        // Fallback a redirect se popup bloccato
+        await signInWithRedirect(auth, provider);
+      } else if (e.code === 'auth/popup-closed-by-user') {
+        // Utente ha chiuso, silenzioso
+      } else if (e.code === 'auth/unauthorized-domain') {
+        alert('Dominio non autorizzato. Vai su Firebase Console → Authentication → Settings → Authorized domains e aggiungi lucsor.github.io');
+      } else {
+        alert('Errore accesso: ' + e.message);
+      }
     }
   }
 }
+
+// Gestisci il risultato del redirect (eseguito al ritorno dalla pagina Google)
+getRedirectResult(auth).then(result => {
+  if (result?.user) {
+    console.log('Redirect login OK:', result.user.email);
+  }
+}).catch(e => {
+  if (e.code !== 'auth/no-auth-event') {
+    console.error('Redirect result error:', e.code, e.message);
+    if (e.code === 'auth/unauthorized-domain') {
+      alert('Dominio non autorizzato. Vai su Firebase Console → Authentication → Settings → Authorized domains e aggiungi lucsor.github.io');
+    }
+  }
+});
 
 async function signOutUser() {
   _unsubscribers.forEach(u => u());
