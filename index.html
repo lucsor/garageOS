@@ -994,6 +994,7 @@ window.signOut          = signOutUser;
 window.toggleUserMenu   = toggleUserMenu;
 window.sendInvite       = sendInvite;
 window.copyShareLink    = copyShareLink;
+window._showToast       = _showToast;
 
 // ===== AUTH =====
 async function signInWithGoogle() {
@@ -1053,34 +1054,39 @@ onAuthStateChanged(auth, async user => {
   document.getElementById('menu-user-name').textContent = user.displayName || user.email;
   document.getElementById('menu-user-email').textContent = user.email;
 
-  // Determine garageId: check if user was invited to another garage
-  await resolveGarage(user);
-  startListeners();
-  await checkJoinLink();
+  // Prima controlla se c'è un link di join da gestire
+  const joinHandled = await checkJoinLink();
+  if (!joinHandled) {
+    // Nessun join link: risolvi il garage normalmente
+    await resolveGarage(user);
+    startListeners();
+  }
 });
 
 // ===== GARAGE RESOLUTION =====
-// Each user can either own a garage (garageId = uid) or be member of another's garage
 async function resolveGarage(user) {
-  // Check if this user is a member of someone else's garage
-  const memberQuery = query(collection(db, 'garages'));
-  const snap = await getDocs(memberQuery);
+  // 1. Cerca in tutti i garage se l'utente è membro attivo (per uid O per email)
+  const snap = await getDocs(collection(db, 'garages'));
   let foundGarage = null;
+
   snap.forEach(d => {
+    if (d.id === user.uid) return; // skip il proprio garage, lo controlliamo dopo
     const members = d.data().members || [];
-    if (members.find(m => m.uid === user.uid && m.status === 'active')) {
-      foundGarage = d.id;
-    }
+    const isMember = members.find(m =>
+      (m.uid === user.uid || m.email === user.email.toLowerCase()) && m.status === 'active'
+    );
+    if (isMember) foundGarage = d.id;
   });
 
   if (foundGarage) {
     garageId = foundGarage;
-    isOwner = (foundGarage === user.uid);
+    isOwner = false;
+    // Aggiorna uid se ancora vuoto (primo accesso dopo invito)
+    await _syncMemberUid(foundGarage, user);
   } else {
-    // Create/use own garage
+    // Usa il proprio garage
     garageId = user.uid;
     isOwner = true;
-    // Ensure garage doc exists
     const garageRef = doc(db, 'garages', user.uid);
     const garageSnap = await getDoc(garageRef);
     if (!garageSnap.exists()) {
@@ -1094,6 +1100,25 @@ async function resolveGarage(user) {
       });
     }
   }
+}
+
+// Aggiorna uid/nome/foto del membro se era ancora vuoto
+async function _syncMemberUid(gid, user) {
+  const garageRef = doc(db, 'garages', gid);
+  const snap = await getDoc(garageRef);
+  if (!snap.exists()) return;
+  const members = snap.data().members || [];
+  let changed = false;
+  members.forEach(m => {
+    if (m.email === user.email.toLowerCase() && (m.uid !== user.uid || !m.name || m.status !== 'active')) {
+      m.uid = user.uid;
+      m.name = user.displayName || user.email;
+      m.photo = user.photoURL || '';
+      m.status = 'active';
+      changed = true;
+    }
+  });
+  if (changed) await setDoc(garageRef, { members }, { merge: true });
 }
 
 // ===== REAL-TIME LISTENERS =====
@@ -1194,10 +1219,9 @@ async function sendInvite() {
   const link = `${window.location.href.split('?')[0]}?join=${garageId}&email=${encodeURIComponent(email)}`;
   document.getElementById('share-link-text').textContent = link;
   document.getElementById('share-link-box').style.display = 'flex';
-  document.getElementById('invite-feedback').textContent = '✅ Invito registrato! Condividi il link con ' + email;
+  document.getElementById('invite-feedback').textContent = '✅ Invito registrato per ' + email + ' — copia il link e mandaglielo!';
   document.getElementById('invite-feedback').style.display = 'block';
   document.getElementById('invite-email').value = '';
-  setTimeout(() => document.getElementById('invite-feedback').style.display = 'none', 4000);
 }
 
 function copyShareLink() {
@@ -1209,37 +1233,80 @@ function copyShareLink() {
   });
 }
 
-// Check for join link on load
+// Check for join link on load — returns true if a join was processed
 async function checkJoinLink() {
   const params = new URLSearchParams(window.location.search);
   const joinId = params.get('join');
   const joinEmail = params.get('email');
-  if (!joinId || !joinEmail || !currentUser) return;
+  if (!joinId || !joinEmail || !currentUser) return false;
+
   if (currentUser.email.toLowerCase() !== joinEmail.toLowerCase()) {
-    alert(`Questo invito è per ${joinEmail}. Hai effettuato l'accesso con ${currentUser.email}.`);
-    return;
+    alert(`Questo invito è per ${joinEmail}.\nHai effettuato l'accesso con ${currentUser.email}.\nEsci e accedi con l'account corretto.`);
+    window.history.replaceState({}, '', window.location.pathname);
+    // Risolvi garage normale per l'utente attuale
+    await resolveGarage(currentUser);
+    startListeners();
+    return true;
   }
-  // Activate membership
+
+  // Attiva il membro nel garage del proprietario
   const garageRef = doc(db, 'garages', joinId);
   const snap = await getDoc(garageRef);
-  if (!snap.exists()) { alert('Garage non trovato'); return; }
+  if (!snap.exists()) {
+    alert('Garage non trovato. Il link potrebbe essere scaduto.');
+    await resolveGarage(currentUser);
+    startListeners();
+    return true;
+  }
+
   const members = snap.data().members || [];
   const idx = members.findIndex(m => m.email === joinEmail.toLowerCase());
   if (idx >= 0) {
-    members[idx].uid = currentUser.uid;
-    members[idx].name = currentUser.displayName || currentUser.email;
-    members[idx].photo = currentUser.photoURL || '';
+    members[idx].uid    = currentUser.uid;
+    members[idx].name   = currentUser.displayName || currentUser.email;
+    members[idx].photo  = currentUser.photoURL || '';
     members[idx].status = 'active';
-    await setDoc(garageRef, { members }, { merge: true });
+  } else {
+    // Non era nella lista inviti — aggiungilo come attivo direttamente
+    members.push({
+      email: currentUser.email.toLowerCase(),
+      uid: currentUser.uid,
+      name: currentUser.displayName || currentUser.email,
+      photo: currentUser.photoURL || '',
+      status: 'active',
+      invitedAt: new Date().toISOString(),
+    });
   }
-  // Switch to that garage
+  await setDoc(garageRef, { members }, { merge: true });
+
+  // Imposta garage condiviso
   garageId = joinId;
-  isOwner = false;
-  _unsubscribers.forEach(u => u()); _unsubscribers = [];
-  startListeners();
-  // Clean URL
+  isOwner  = false;
   window.history.replaceState({}, '', window.location.pathname);
-  alert('✅ Sei entrato nel garage di famiglia!');
+  startListeners();
+  // Mostra notifica non bloccante
+  _showToast('✅ Sei entrato nel garage di famiglia!', 'green');
+  return true;
+}
+
+// Toast non bloccante (sostituisce alert per azioni non critiche)
+function _showToast(msg, color = 'green') {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+      padding:12px 24px;border-radius:100px;font-family:var(--font-display);font-weight:700;
+      font-size:14px;z-index:9999;transition:opacity 0.4s;pointer-events:none;
+      box-shadow:0 8px 32px rgba(0,0,0,0.4)`;
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = color === 'green' ? 'var(--green)' : color === 'red' ? 'var(--red)' : 'var(--accent)';
+  t.style.color = '#0d0f14';
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
 }
 
 // ===== UTILS =====
