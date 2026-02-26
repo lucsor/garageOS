@@ -1155,17 +1155,29 @@ async function resolveGarage(user) {
   snap.forEach(d => {
     if (d.id === user.uid) return; // skip il proprio garage
     const members = d.data().members || [];
+    // Cerca per uid OPPURE per email — status active
     const isMember = members.find(m =>
       (m.uid === user.uid || m.email === user.email.toLowerCase()) && m.status === 'active'
     );
     if (isMember) foundGarage = d.id;
+    
+    // Cerca anche se è pending con questa email: attivalo automaticamente
+    const isPending = members.find(m =>
+      m.email === user.email.toLowerCase() && m.status === 'pending'
+    );
+    if (isPending && !foundGarage) {
+      console.log('[GarageOS] Trovato invito pending per', user.email, '- attivazione automatica');
+      foundGarage = d.id;
+    }
   });
 
   if (foundGarage) {
+    console.log('[GarageOS] Membro di garage:', foundGarage);
     garageId = foundGarage;
     isOwner = false;
     await _syncMemberUid(foundGarage, user);
   } else {
+    console.log('[GarageOS] Uso garage proprio:', user.uid);
     // Usa il proprio garage
     garageId = user.uid;
     isOwner = true;
@@ -1244,11 +1256,17 @@ function startListeners() {
   _unsubscribers.forEach(u => u());
   _unsubscribers = [];
 
+  console.log('[GarageOS] Ascolto garage:', garageId, '| isOwner:', isOwner);
   const base = `garages/${garageId}`;
 
   const u1 = onSnapshot(
     query(collection(db, base + '/vehicles'), orderBy('plate')),
-    snap => { data.vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() })); setStatus('online'); renderAll(); },
+    snap => {
+      data.vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      console.log('[GarageOS] Veicoli caricati:', data.vehicles.length, 'dal garage:', garageId);
+      setStatus('online');
+      renderAll();
+    },
     err => { console.error(err); setStatus('error'); }
   );
   const u2 = onSnapshot(
