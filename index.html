@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="icon-192.png">
-
+<script src="https://accounts.google.com/gsi/client"></script>
 <style>
   /* Try to load Syne from Google Fonts, fallback gracefully */
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap') layer(fonts);
@@ -2173,21 +2173,42 @@ function renderNotifications() {
   bar.classList.add('has-notifs');
   scroll.innerHTML = `<span class="notif-label">⚠️ AVVISI:</span>` + chips.map(c => `<span class="notif-chip ${c.cls}">${c.text}</span>`).join('');
 }
-
 // ===== RENDER ALL =====
 function renderAll() {
-  renderDashboard();
-  renderScadenze();
-  renderPneumatici();
-  renderMeccanica();
-  renderFamiglia();
-  renderNotifications();
+  // 1. Controlliamo se c'è un utente salvato nel browser
+  const savedUser = localStorage.getItem('garage_user');
+  
+  if (savedUser) {
+    // Se l'utente esiste, carichiamo l'app
+    currentUser = JSON.parse(savedUser);
+    setStatus('dashboard');
+    
+    // Richiamiamo tutte le tue funzioni di rendering
+    renderDashboard();
+    renderScadenze();
+    renderPneumatici();
+    renderMeccanica();
+    renderFamiglia();
+    renderNotifications();
+  } else {
+    // 2. Se non c'è l'utente, dobbiamo mostrare il Login.
+    // Ma prima verifichiamo che la libreria di Google sia caricata.
+    if (typeof google !== 'undefined') {
+      setStatus('login');
+    } else {
+      // Se Google non è ancora pronto, aspettiamo 200ms e riproviamo
+      console.log("In attesa di Google Auth...");
+      setTimeout(renderAll, 200);
+    }
+  }
 }
 
 // ===== INIT =====
-setStatus('loading');
-renderAll();
-
+// Usiamo window.onload per essere sicuri che la pagina sia caricata tutta
+window.onload = () => {
+  setStatus('loading');
+  renderAll();
+};
 
 </script>
 
