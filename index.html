@@ -1026,77 +1026,65 @@ window.copyShareLink    = copyShareLink;
 window._showToast       = _showToast;
 
 // ===== AUTH =====
-function _isMobile() {
-  return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
-}
-
 function _isPWA() {
   return window.matchMedia('(display-mode: standalone)').matches
     || window.navigator.standalone === true;
 }
 
-// Forza persistenza localStorage (sopravvive ai redirect PWA)
+// Forza persistenza localStorage — sopravvive a redirect, refresh e chiusura app
 setPersistence(auth, browserLocalStoragePersistence).catch(e => console.warn('Persistence error:', e));
+
+// Gestisci subito il risultato di un eventuale redirect precedente
+getRedirectResult(auth).then(result => {
+  if (result?.user) {
+    console.log('✅ Redirect login OK:', result.user.email);
+    localStorage.removeItem('garageos_auth_pending');
+  }
+}).catch(e => {
+  localStorage.removeItem('garageos_auth_pending');
+  if (e.code && e.code !== 'auth/no-auth-event') {
+    console.error('Redirect result error:', e.code, e.message);
+  }
+});
 
 async function signInWithGoogle() {
   provider.setCustomParameters({ prompt: 'select_account' });
 
-  // PWA installata: usa SEMPRE redirect (il popup non funziona in standalone)
-  if (_isPWA() || _isMobile()) {
-    try {
-      // Salva un flag per sapere che stiamo facendo un redirect
-      localStorage.setItem('garageos_auth_pending', '1');
-      await signInWithRedirect(auth, provider);
-    } catch(e) {
-      localStorage.removeItem('garageos_auth_pending');
-      console.error('Redirect error:', e);
-      alert('Errore accesso: ' + e.message);
-    }
-  } else {
-    // Desktop: popup normale
-    try {
-      await signInWithPopup(auth, provider);
-    } catch(e) {
-      console.error('Popup error:', e.code, e.message);
-      if (e.code === 'auth/popup-blocked') {
-        localStorage.setItem('garageos_auth_pending', '1');
-        await signInWithRedirect(auth, provider);
-      } else if (e.code === 'auth/popup-closed-by-user') {
-        // Silenzioso
-      } else if (e.code === 'auth/unauthorized-domain') {
-        alert('Dominio non autorizzato.\nVai su Firebase Console → Authentication → Settings → Authorized domains\ne aggiungi lucsor.github.io');
-      } else {
-        alert('Errore accesso: ' + e.message);
-      }
-    }
-  }
-}
-
-// ── Gestisci il risultato del redirect al ritorno da Google
-// Questo viene eseguito PRIMA di onAuthStateChanged
-(async () => {
+  // Prima tenta sempre il popup — funziona su browser mobile e desktop
   try {
-    const result = await getRedirectResult(auth);
-    if (result?.user) {
-      console.log('✅ Redirect login OK:', result.user.email);
-      localStorage.removeItem('garageos_auth_pending');
-      // onAuthStateChanged si occuperà del resto
-    } else if (localStorage.getItem('garageos_auth_pending')) {
-      // Siamo tornati dal redirect ma non c'è risultato — riprova
-      console.warn('Auth pending ma nessun risultato redirect');
-      localStorage.removeItem('garageos_auth_pending');
+    await signInWithPopup(auth, provider);
+    localStorage.removeItem('garageos_auth_pending');
+    return;
+  } catch(e) {
+    if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
+      return; // Utente ha chiuso, nessun errore
     }
+    if (e.code === 'auth/unauthorized-domain') {
+      alert('Dominio non autorizzato.\nAggiungi lucsor.github.io in Firebase Console → Authentication → Authorized domains');
+      return;
+    }
+    // Popup bloccato (tipico in PWA standalone) → fallback redirect
+    console.warn('Popup fallito, uso redirect:', e.code);
+  }
+
+  // Fallback: redirect (PWA standalone o browser con popup bloccati)
+  try {
+    localStorage.setItem('garageos_auth_pending', '1');
+    // Mostra messaggio di attesa prima del redirect
+    const loginBox = document.querySelector('.login-box');
+    if (loginBox) {
+      loginBox.innerHTML = `
+        <div class="login-logo">Garage<span>OS</span></div>
+        <div style="color:var(--text2);margin-top:20px;font-size:15px;font-family:var(--font-display)">⏳ Reindirizzamento a Google...</div>
+        <div style="color:var(--text2);font-size:12px;margin-top:8px">Verrai riportato sull'app dopo il login</div>
+      `;
+    }
+    await signInWithRedirect(auth, provider);
   } catch(e) {
     localStorage.removeItem('garageos_auth_pending');
-    console.error('Redirect result error:', e.code, e.message);
-    if (e.code === 'auth/unauthorized-domain') {
-      // Mostra errore solo se NON è l'errore "no-auth-event" che è normale
-      alert('Dominio non autorizzato.\nVai su Firebase Console → Authentication → Settings → Authorized domains\ne aggiungi lucsor.github.io');
-    } else if (e.code && e.code !== 'auth/no-auth-event') {
-      alert('Errore autenticazione: ' + e.message);
-    }
+    alert('Errore accesso: ' + e.message);
   }
-})();
+}
 
 async function signOutUser() {
   _unsubscribers.forEach(u => u());
@@ -1123,15 +1111,17 @@ document.addEventListener('click', e => {
 
 onAuthStateChanged(auth, async user => {
   if (!user) {
-    // Se c'è un redirect in corso non mostrare la schermata di login
+    // Se redirect in corso mostra schermata di attesa invece del login
     if (localStorage.getItem('garageos_auth_pending')) {
-      // Aspetta — il redirect sta tornando
       document.getElementById('login-screen').classList.remove('hidden');
       const loginBox = document.querySelector('.login-box');
       if (loginBox) loginBox.innerHTML = `
         <div class="login-logo">Garage<span>OS</span></div>
-        <div style="color:var(--text2);margin-top:16px;font-size:14px">⏳ Accesso in corso...</div>
-        <div style="color:var(--text2);font-size:12px;margin-top:8px">Attendere il completamento del login Google</div>
+        <div style="color:var(--text2);margin-top:20px;font-size:15px;font-family:var(--font-display)">⏳ Accesso in corso...</div>
+        <div style="color:var(--text2);font-size:12px;margin-top:8px">Completa il login su Google e torna qui</div>
+        <button class="btn-google" style="margin-top:24px;opacity:0.6;cursor:not-allowed" disabled>
+          Attendere...
+        </button>
       `;
       return;
     }
