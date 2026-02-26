@@ -2,8 +2,15 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GarageOS — Il tuo parco macchine</title>
+<meta name="description" content="Gestisci il tuo parco macchine in famiglia">
+<meta name="theme-color" content="#0d0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GarageOS">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 
 <style>
   /* Try to load Syne from Google Fonts, fallback gracefully */
@@ -41,6 +48,21 @@
     min-height: 100vh;
     overflow-x: hidden;
   }
+
+  /* UPDATE BANNER */
+  #update-banner {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #0d0f14;
+    padding: 14px 24px; border-radius: 100px;
+    font-family: var(--font-display); font-weight: 700; font-size: 14px;
+    display: none; align-items: center; gap: 12px;
+    z-index: 9999; cursor: pointer;
+    box-shadow: 0 8px 32px rgba(232,197,71,0.4);
+    animation: slideIn 0.4s ease;
+    white-space: nowrap;
+  }
+  #update-banner.show { display: flex; }
+  #update-banner:hover { background: #f5d454; transform: translateX(-50%) translateY(-2px); }
 
   /* SCROLLBAR */
   ::-webkit-scrollbar { width: 4px; }
@@ -579,6 +601,11 @@
 </style>
 </head>
 <body>
+
+<!-- UPDATE BANNER -->
+<div id="update-banner" onclick="applyUpdate()">
+  🔄 Nuova versione disponibile — Tocca per aggiornare
+</div>
 
 <!-- LOGIN SCREEN -->
 <div id="login-screen">
@@ -2135,6 +2162,49 @@ setStatus('loading');
 renderAll();
 
 
+</script>
+
+<script>
+// ===== SERVICE WORKER REGISTRATION & UPDATE =====
+let _swWaiting = null;
+
+function applyUpdate() {
+  if (_swWaiting) {
+    _swWaiting.postMessage({ type: 'SKIP_WAITING' });
+  } else {
+    window.location.reload();
+  }
+}
+window.applyUpdate = applyUpdate;
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/garageOS/sw.js').then(reg => {
+    // Controlla aggiornamento subito
+    reg.update();
+
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          // Nuova versione pronta!
+          _swWaiting = newWorker;
+          document.getElementById('update-banner').classList.add('show');
+        }
+      });
+    });
+
+    // Se SW già in waiting al caricamento
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      _swWaiting = reg.waiting;
+      document.getElementById('update-banner').classList.add('show');
+    }
+  }).catch(err => console.log('SW registration failed:', err));
+
+  // Ricarica automaticamente dopo che il nuovo SW prende il controllo
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  });
+}
 </script>
 </body>
 </html>
