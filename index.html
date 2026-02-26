@@ -1049,6 +1049,7 @@ getRedirectResult(auth).then(result => {
 async function signOutUser() {
   _unsubscribers.forEach(u => u());
   _unsubscribers = [];
+  if (_membershipWatcher) { _membershipWatcher(); _membershipWatcher = null; }
   await fbSignOut(auth);
   currentUser = null; garageId = null;
   data = { vehicles: [], tires: [], mechs: [], members: [] };
@@ -1095,12 +1096,12 @@ onAuthStateChanged(auth, async user => {
 
 // ===== GARAGE RESOLUTION =====
 async function resolveGarage(user) {
-  // 1. Cerca in tutti i garage se l'utente è membro attivo (per uid O per email)
+  // Cerca in tutti i garage se l'utente è membro attivo (per uid O per email)
   const snap = await getDocs(collection(db, 'garages'));
   let foundGarage = null;
 
   snap.forEach(d => {
-    if (d.id === user.uid) return; // skip il proprio garage, lo controlliamo dopo
+    if (d.id === user.uid) return; // skip il proprio garage
     const members = d.data().members || [];
     const isMember = members.find(m =>
       (m.uid === user.uid || m.email === user.email.toLowerCase()) && m.status === 'active'
@@ -1111,7 +1112,6 @@ async function resolveGarage(user) {
   if (foundGarage) {
     garageId = foundGarage;
     isOwner = false;
-    // Aggiorna uid se ancora vuoto (primo accesso dopo invito)
     await _syncMemberUid(foundGarage, user);
   } else {
     // Usa il proprio garage
@@ -1129,7 +1129,42 @@ async function resolveGarage(user) {
         createdAt: new Date().toISOString(),
       });
     }
+    // Ascolta in tempo reale il proprio garage doc:
+    // se qualcuno ci aggiunge come membro attivo, rientra nel garage giusto
+    _watchForMembership(user);
   }
+}
+
+// Ascolta TUTTI i garage per vedere se l'utente diventa membro attivo
+// (es: quando il proprietario ha già creato l'invito e l'utente fa login)
+let _membershipWatcher = null;
+function _watchForMembership(user) {
+  if (_membershipWatcher) { _membershipWatcher(); _membershipWatcher = null; }
+  _membershipWatcher = onSnapshot(
+    collection(db, 'garages'),
+    snap => {
+      snap.forEach(d => {
+        if (d.id === user.uid) return;
+        const members = d.data().members || [];
+        const isMember = members.find(m =>
+          (m.uid === user.uid || m.email === user.email.toLowerCase()) && m.status === 'active'
+        );
+        if (isMember && garageId === user.uid) {
+          // Trovato! Passa al garage condiviso
+          console.log('Membership trovata nel garage:', d.id);
+          garageId = d.id;
+          isOwner  = false;
+          if (_membershipWatcher) { _membershipWatcher(); _membershipWatcher = null; }
+          // Riavvia i listener sul garage giusto
+          _unsubscribers.forEach(u => u()); _unsubscribers = [];
+          startListeners();
+          _syncMemberUid(d.id, user);
+          _showToast('✅ Sei entrato nel garage di famiglia!', 'green');
+        }
+      });
+    },
+    err => console.error('membership watcher err:', err)
+  );
 }
 
 // Aggiorna uid/nome/foto del membro se era ancora vuoto
@@ -1177,11 +1212,26 @@ function startListeners() {
   const u4 = onSnapshot(
     doc(db, 'garages', garageId),
     snap => {
-      if (snap.exists()) {
-        data.members = snap.data().members || [];
-        data.garageOwner = { name: snap.data().ownerName, email: snap.data().ownerEmail, photo: snap.data().ownerPhoto, uid: snap.data().ownerUid };
-        renderFamiglia();
+      if (!snap.exists()) return;
+      const prevMembers = JSON.stringify(data.members);
+      data.members = snap.data().members || [];
+      data.garageOwner = {
+        name:  snap.data().ownerName,
+        email: snap.data().ownerEmail,
+        photo: snap.data().ownerPhoto,
+        uid:   snap.data().ownerUid
+      };
+      // Notifica se un nuovo membro ha accettato
+      if (prevMembers !== '[]' && prevMembers !== JSON.stringify(data.members)) {
+        const prev = JSON.parse(prevMembers);
+        const newActive = data.members.filter(m => m.status === 'active');
+        const wasActive = prev.filter(m => m.status === 'active');
+        if (newActive.length > wasActive.length) {
+          const joined = newActive.find(nm => !wasActive.some(w => w.email === nm.email));
+          if (joined) _showToast('\u2705 ' + (joined.name || joined.email) + ' e\'entrato nel garage!', 'green');
+        }
       }
+      renderFamiglia();
     },
     err => console.error(err)
   );
