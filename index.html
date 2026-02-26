@@ -2189,6 +2189,16 @@ function renderNotifications() {
   bar.classList.add('has-notifs');
   scroll.innerHTML = `<span class="notif-label">⚠️ AVVISI:</span>` + chips.map(c => `<span class="notif-chip ${c.cls}">${c.text}</span>`).join('');
 }
+// ===== RENDER ALL =====
+function renderAll() {
+  renderDashboard();
+  renderScadenze();
+  renderPneumatici();
+  renderMeccanica();
+  renderFamiglia();
+  renderNotifications();
+}
+
 // ===== INIT =====
 setStatus('loading');
 renderAll();
