@@ -973,7 +973,8 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
-  onAuthStateChanged, signOut as fbSignOut
+  onAuthStateChanged, signOut as fbSignOut,
+  browserLocalStoragePersistence, setPersistence
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js';
 
 // ===== FIREBASE CONFIG =====
@@ -1029,30 +1030,41 @@ function _isMobile() {
   return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
 }
 
+function _isPWA() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
+// Forza persistenza localStorage (sopravvive ai redirect PWA)
+setPersistence(auth, browserLocalStoragePersistence).catch(e => console.warn('Persistence error:', e));
+
 async function signInWithGoogle() {
   provider.setCustomParameters({ prompt: 'select_account' });
-  if (_isMobile()) {
-    // Su mobile usa redirect (popup bloccato da iOS/Android)
+
+  // PWA installata: usa SEMPRE redirect (il popup non funziona in standalone)
+  if (_isPWA() || _isMobile()) {
     try {
+      // Salva un flag per sapere che stiamo facendo un redirect
+      localStorage.setItem('garageos_auth_pending', '1');
       await signInWithRedirect(auth, provider);
-      // La pagina si ricarica dopo il redirect — il risultato viene gestito sotto
     } catch(e) {
+      localStorage.removeItem('garageos_auth_pending');
       console.error('Redirect error:', e);
       alert('Errore accesso: ' + e.message);
     }
   } else {
-    // Su desktop usa popup
+    // Desktop: popup normale
     try {
       await signInWithPopup(auth, provider);
     } catch(e) {
       console.error('Popup error:', e.code, e.message);
       if (e.code === 'auth/popup-blocked') {
-        // Fallback a redirect se popup bloccato
+        localStorage.setItem('garageos_auth_pending', '1');
         await signInWithRedirect(auth, provider);
       } else if (e.code === 'auth/popup-closed-by-user') {
-        // Utente ha chiuso, silenzioso
+        // Silenzioso
       } else if (e.code === 'auth/unauthorized-domain') {
-        alert('Dominio non autorizzato. Vai su Firebase Console → Authentication → Settings → Authorized domains e aggiungi lucsor.github.io');
+        alert('Dominio non autorizzato.\nVai su Firebase Console → Authentication → Settings → Authorized domains\ne aggiungi lucsor.github.io');
       } else {
         alert('Errore accesso: ' + e.message);
       }
@@ -1060,19 +1072,31 @@ async function signInWithGoogle() {
   }
 }
 
-// Gestisci il risultato del redirect (eseguito al ritorno dalla pagina Google)
-getRedirectResult(auth).then(result => {
-  if (result?.user) {
-    console.log('Redirect login OK:', result.user.email);
-  }
-}).catch(e => {
-  if (e.code !== 'auth/no-auth-event') {
+// ── Gestisci il risultato del redirect al ritorno da Google
+// Questo viene eseguito PRIMA di onAuthStateChanged
+(async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) {
+      console.log('✅ Redirect login OK:', result.user.email);
+      localStorage.removeItem('garageos_auth_pending');
+      // onAuthStateChanged si occuperà del resto
+    } else if (localStorage.getItem('garageos_auth_pending')) {
+      // Siamo tornati dal redirect ma non c'è risultato — riprova
+      console.warn('Auth pending ma nessun risultato redirect');
+      localStorage.removeItem('garageos_auth_pending');
+    }
+  } catch(e) {
+    localStorage.removeItem('garageos_auth_pending');
     console.error('Redirect result error:', e.code, e.message);
     if (e.code === 'auth/unauthorized-domain') {
-      alert('Dominio non autorizzato. Vai su Firebase Console → Authentication → Settings → Authorized domains e aggiungi lucsor.github.io');
+      // Mostra errore solo se NON è l'errore "no-auth-event" che è normale
+      alert('Dominio non autorizzato.\nVai su Firebase Console → Authentication → Settings → Authorized domains\ne aggiungi lucsor.github.io');
+    } else if (e.code && e.code !== 'auth/no-auth-event') {
+      alert('Errore autenticazione: ' + e.message);
     }
   }
-});
+})();
 
 async function signOutUser() {
   _unsubscribers.forEach(u => u());
@@ -1099,6 +1123,18 @@ document.addEventListener('click', e => {
 
 onAuthStateChanged(auth, async user => {
   if (!user) {
+    // Se c'è un redirect in corso non mostrare la schermata di login
+    if (localStorage.getItem('garageos_auth_pending')) {
+      // Aspetta — il redirect sta tornando
+      document.getElementById('login-screen').classList.remove('hidden');
+      const loginBox = document.querySelector('.login-box');
+      if (loginBox) loginBox.innerHTML = `
+        <div class="login-logo">Garage<span>OS</span></div>
+        <div style="color:var(--text2);margin-top:16px;font-size:14px">⏳ Accesso in corso...</div>
+        <div style="color:var(--text2);font-size:12px;margin-top:8px">Attendere il completamento del login Google</div>
+      `;
+      return;
+    }
     document.getElementById('login-screen').classList.remove('hidden');
     return;
   }
