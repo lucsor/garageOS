@@ -2175,28 +2175,23 @@ function renderNotifications() {
 }
 // ===== RENDER ALL =====
 function renderAll() {
-  // 1. Controlliamo se c'è un utente salvato nel browser
-  const savedUser = localStorage.getItem('garage_user');
+  const user = JSON.parse(localStorage.getItem('garage_user'));
   
-  if (savedUser) {
-    // Se l'utente esiste, carichiamo l'app
-    currentUser = JSON.parse(savedUser);
+  if (user) {
+    currentUser = user;
     setStatus('dashboard');
-    
-    // Richiamiamo tutte le tue funzioni di rendering
-    renderDashboard();
+    initDashboard();
     renderScadenze();
     renderPneumatici();
     renderMeccanica();
     renderFamiglia();
     renderNotifications();
   } else {
-    // 2. Se non c'è l'utente, dobbiamo mostrare il Login.
-    // Ma prima verifichiamo che la libreria di Google sia caricata.
-    if (typeof google !== 'undefined') {
+    if (typeof google !== 'undefined' && google.accounts) {
       setStatus('login');
+      // QUESTA RIGA È FONDAMENTALE:
+      setTimeout(() => initGoogleAuth(), 100); 
     } else {
-      // Se Google non è ancora pronto, aspettiamo 200ms e riproviamo
       console.log("In attesa di Google Auth...");
       setTimeout(renderAll, 200);
     }
