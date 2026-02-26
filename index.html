@@ -972,8 +972,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
-  onAuthStateChanged, signOut as fbSignOut,
-  browserLocalStoragePersistence, setPersistence
+  onAuthStateChanged, signOut as fbSignOut
 } from 'https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js';
 
 // ===== FIREBASE CONFIG =====
@@ -1029,8 +1028,8 @@ function _isPWA() {
     || window.navigator.standalone === true;
 }
 
-// Forza persistenza localStorage — sopravvive a redirect, refresh e chiusura app
-setPersistence(auth, browserLocalStoragePersistence).catch(e => console.warn('Persistence error:', e));
+// La persistenza localStorage è già il default in Firebase 10+
+// (non serve setPersistence esplicito)
 
 // Gestisci subito il risultato di un eventuale redirect precedente
 getRedirectResult(auth).then(result => {
