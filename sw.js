@@ -1,79 +1,21 @@
-// ===== GarageOS Service Worker =====
-// Aggiorna questo numero ogni volta che carichi una nuova versione su GitHub!
-const VERSION = '1.5.0';
-const CACHE_NAME = 'garageos-v' + VERSION;
+// ===== GarageOS v1 — service worker di DISMISSIONE ("kill switch") =====
+// La v1 si è spostata su https://lucsor.github.io/garageos-v2/.
+// Il browser scarica questo file al posto del vecchio sw.js (byte diversi → aggiornamento), lo attiva subito,
+// cancella le SOLE cache della v1, si de-registra e porta le pagine aperte alla v2.
+// ATTENZIONE: v1 e v2 condividono l'origine lucsor.github.io: non toccare cache/registrazioni della v2.
+const VERSION = '1.99.0-retired';
+const NEW_URL = 'https://lucsor.github.io/garageos-v2/';
 
-// File da cachare per uso offline
-const PRECACHE = [
-  '/garageOS/',
-  '/garageOS/index.html',
-];
+self.addEventListener('install', () => self.skipWaiting());
 
-// ── Install: precache i file principali
-self.addEventListener('install', event => {
-  console.log('[SW] Install v' + VERSION);
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE))
-  );
-  // NON fare skipWaiting automatico — aspetta che l'utente clicchi "Aggiorna"
-});
-
-// ── Activate: cancella le vecchie cache
 self.addEventListener('activate', event => {
-  console.log('[SW] Activate v' + VERSION);
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => {
-          console.log('[SW] Deleting old cache:', k);
-          return caches.delete(k);
-        })
-      )
-    ).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => /^garageos-v1\./.test(k)).map(k => caches.delete(k)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    await Promise.all(clients.map(c => c.navigate(NEW_URL).catch(() => {})));
+  })());
 });
 
-// ── Fetch: network-first per Firebase, cache-first per assets locali
-self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-
-  // Lascia passare direttamente Firebase, Google Fonts e CDN esterni
-  if (
-    url.hostname.includes('firebase') ||
-    url.hostname.includes('google') ||
-    url.hostname.includes('gstatic') ||
-    url.hostname.includes('cloudflare') ||
-    url.protocol === 'chrome-extension:'
-  ) {
-    return; // lascia al browser
-  }
-
-  // Per i file locali: network-first con fallback cache
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        // Aggiorna la cache con la risposta fresca
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      })
-      .catch(() => {
-        // Offline: servi dalla cache
-        return caches.match(event.request).then(cached => {
-          if (cached) return cached;
-          // Fallback alla pagina principale se non trovato
-          return caches.match('/garageOS/index.html');
-        });
-      })
-  );
-});
-
-// ── Messaggio dall'app: attiva subito la nuova versione
-self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') {
-    console.log('[SW] Skip waiting — activating new version');
-    self.skipWaiting();
-  }
-});
+// Nessuna gestione offline: ogni richiesta va in rete (la pagina index.html fa il redirect)
