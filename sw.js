@@ -3,8 +3,8 @@
 // Il browser scarica questo file al posto del vecchio sw.js (byte diversi → aggiornamento), lo attiva subito,
 // cancella le SOLE cache della v1, si de-registra e porta le pagine aperte alla v2.
 // ATTENZIONE: v1 e v2 condividono l'origine lucsor.github.io: non toccare cache/registrazioni della v2.
-const VERSION = '1.99.0-retired';
-const NEW_URL = 'https://lucsor.github.io/garageos-v2/';
+const VERSION = '1.99.1-retired';
+const NEW_URL = 'https://lucsor.github.io/garageos-v2/?from=v1';   // la v2 mostra l'avviso "vecchia icona"
 
 self.addEventListener('install', () => self.skipWaiting());
 
